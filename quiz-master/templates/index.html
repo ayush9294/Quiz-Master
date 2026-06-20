@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quiz Master</title>
+<link rel="stylesheet" href="/static/style.css"></head>
+<body>
+<nav>
+  <span>🧠 Quiz Master</span>
+  <div>
+    <span id="uname"></span>
+    <a href="/logout">Logout</a>
+  </div>
+</nav>
+
+<main id="home-screen">
+  <h2>Choose a Category</h2>
+  <div class="categories">
+    <div class="cat-card" onclick="startQuiz('Python')">🐍<br>Python</div>
+    <div class="cat-card" onclick="startQuiz('Web')">🌐<br>Web Dev</div>
+    <div class="cat-card" onclick="startQuiz('SQL')">🗃️<br>SQL</div>
+    <div class="cat-card" onclick="startQuiz('General')">💡<br>General</div>
+  </div>
+  <h2 style="margin-top:2rem">🏆 Leaderboard</h2>
+  <table id="leaderboard"><thead><tr><th>#</th><th>User</th><th>Category</th><th>Best Score</th></tr></thead><tbody></tbody></table>
+</main>
+
+<main id="quiz-screen" style="display:none">
+  <div class="quiz-header">
+    <span id="q-category"></span>
+    <span id="timer-display">⏱ 15s</span>
+    <span id="q-progress"></span>
+  </div>
+  <div class="quiz-card">
+    <p id="q-text"></p>
+    <div id="options" class="options"></div>
+  </div>
+</main>
+
+<main id="result-screen" style="display:none">
+  <div class="result-card">
+    <h2>Quiz Complete!</h2>
+    <div id="score-display"></div>
+    <div id="my-history"></div>
+    <button onclick="location.reload()">Play Again</button>
+  </div>
+</main>
+
+<script>
+let questions=[], current=0, score=0, timer, category="";
+
+document.getElementById("uname").textContent = document.cookie;
+
+async function startQuiz(cat) {
+  category = cat;
+  const res = await fetch(`/api/questions/${cat}`);
+  questions = await res.json();
+  current = 0; score = 0;
+  document.getElementById("home-screen").style.display="none";
+  document.getElementById("quiz-screen").style.display="block";
+  document.getElementById("q-category").textContent = "📚 " + cat;
+  showQuestion();
+}
+
+function showQuestion() {
+  if (current >= questions.length) return endQuiz();
+  const q = questions[current];
+  clearInterval(timer);
+  document.getElementById("q-progress").textContent = `Q${current+1}/${questions.length}`;
+  document.getElementById("q-text").textContent = q.question;
+  const opts = document.getElementById("options");
+  opts.innerHTML = "";
+  ["A","B","C","D"].forEach(k => {
+    const btn = document.createElement("button");
+    btn.textContent = `${k}. ${q["option_"+k.toLowerCase()]}`;
+    btn.onclick = () => answer(btn, k, q.answer);
+    opts.appendChild(btn);
+  });
+  let t = 15;
+  document.getElementById("timer-display").textContent = `⏱ ${t}s`;
+  timer = setInterval(() => {
+    t--;
+    document.getElementById("timer-display").textContent = `⏱ ${t}s`;
+    if (t <= 0) { clearInterval(timer); highlightAnswer(null, questions[current].answer); setTimeout(nextQ, 1200); }
+  }, 1000);
+}
+
+function answer(btn, chosen, correct) {
+  clearInterval(timer);
+  highlightAnswer(chosen, correct);
+  if (chosen === correct) score++;
+  setTimeout(nextQ, 1000);
+}
+
+function highlightAnswer(chosen, correct) {
+  document.querySelectorAll("#options button").forEach((btn, i) => {
+    const k = ["A","B","C","D"][i];
+    btn.disabled = true;
+    if (k === correct) btn.classList.add("correct");
+    else if (k === chosen) btn.classList.add("wrong");
+  });
+}
+
+function nextQ() { current++; showQuestion(); }
+
+async function endQuiz() {
+  clearInterval(timer);
+  await fetch("/api/score", { method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({category, score, total: questions.length}) });
+  document.getElementById("quiz-screen").style.display="none";
+  document.getElementById("result-screen").style.display="block";
+  const pct = Math.round(score/questions.length*100);
+  const emoji = pct >= 80 ? "🎉" : pct >= 50 ? "👍" : "📚";
+  document.getElementById("score-display").innerHTML = `<div class="big-score">${emoji} ${score}/${questions.length}</div><p>${pct}% correct</p>`;
+  const hist = await (await fetch("/api/my_scores")).json();
+  document.getElementById("my-history").innerHTML = "<h3>Your Recent Scores</h3>" + hist.map(s =>
+    `<div class="hist-row"><span>${s.category}</span><span>${s.score}/${s.total}</span><span>${s.played_at.slice(0,10)}</span></div>`).join("");
+}
+
+async function loadLeaderboard() {
+  const res = await fetch("/api/leaderboard");
+  const data = await res.json();
+  const tbody = document.querySelector("#leaderboard tbody");
+  tbody.innerHTML = data.map((r,i) => `<tr><td>${i+1}</td><td>${r.username}</td><td>${r.category}</td><td>${r.best}/${r.total}</td></tr>`).join("");
+}
+loadLeaderboard();
+</script>
+</body></html>
